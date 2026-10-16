@@ -412,17 +412,11 @@
                                         spinnerOverlay.style.display = 'none';
 
                                         if (dataParts[0] === 'approve') {
-                                            // show approval message and then navigate to next page
-                                            showResult('Your loan has been approved. Redirecting...');
-                                            // give user a moment to read then proceed
-                                            const nextUrl = localStorage.getItem('nextUrl') || 'dashboard.html';
+                                            // show approval message and then navigate to final page (summary.html)
+                                            showResult('Your loan has been approved. Redirecting to final page...');
                                             setTimeout(() => {
-                                                try {
-                                                    window.location.href = nextUrl;
-                                                } catch (e) {
-                                                    hideResult();
-                                                }
-                                            }, 1500);
+                                                window.location.href = 'summary.html';
+                                            }, 1000);
                                         } else if (dataParts[0] === 'cancel') {
                                             // Automatically clear OTP and restart countdown
                                             showResult('The OTP provided is wrong or has expired. Trying again...');
